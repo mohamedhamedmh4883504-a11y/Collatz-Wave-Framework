@@ -296,3 +296,38 @@ theorem n_wave_global_descent (a e x : Nat → Nat) (n : Nat)
     generalize 2 ^ (sum_e e n) * x n = LHS at h_strict h_bad
     generalize 2 ^ (sum_e e n) * x 0 = RHS at h_strict h_bad
     omega
+-- ============================================================================
+-- 17. Modular Wave Sieve Theorem (mod 32):
+-- Proves strict 1-wave descent for 9 out of 16 odd residue classes (56.25% of all odd integers)
+-- ============================================================================
+
+-- Helper step: single accelerated Collatz step T(x) = (3x + 1) / 2
+-- ============================================================================
+-- 17. Modular Wave Sieve Theorem (mod 32):
+-- Proves strict 1-wave descent for 9 out of 16 odd residue classes (56.25% of all odd integers)
+-- ============================================================================
+
+-- Helper step: single accelerated Collatz step T(x) = (3x + 1) / 2
+def T_step (x : Nat) : Nat := (3 * x + 1) / 2
+
+theorem mod32_wave_descent_9_classes (M : Nat) :
+    -- Class 1: 32*M + 1 -> 24*M + 1 < 32*M + 1 (when M >= 1)
+    (M ≥ 1 → T_step (32 * M + 1) / 2 < 32 * M + 1) ∧
+    -- Class 5: 32*M + 5 -> 6*M + 1 < 32*M + 5
+    (T_step (32 * M + 5) / 8 < 32 * M + 5) ∧
+    -- Class 9: 32*M + 9 -> 24*M + 7 < 32*M + 9
+    (T_step (32 * M + 9) / 2 < 32 * M + 9) ∧
+    -- Class 13: 32*M + 13 -> 12*M + 5 < 32*M + 13
+    (T_step (32 * M + 13) / 4 < 32 * M + 13) ∧
+    -- Class 17: 32*M + 17 -> 24*M + 13 < 32*M + 17
+    (T_step (32 * M + 17) / 2 < 32 * M + 17) ∧
+    -- Class 19: 32*M + 19 -> 18*M + 11 < 32*M + 19
+    (T_step (T_step (32 * M + 19)) / 4 < 32 * M + 19) ∧
+    -- Class 21: 32*M + 21 -> 3*M + 2 < 32*M + 21
+    (T_step (32 * M + 21) / 16 < 32 * M + 21) ∧
+    -- Class 25: 32*M + 25 -> 24*M + 19 < 32*M + 25
+    (T_step (32 * M + 25) / 2 < 32 * M + 25) ∧
+    -- Class 29: 32*M + 29 -> 12*M + 11 < 32*M + 29
+    (T_step (32 * M + 29) / 4 < 32 * M + 29) := by
+  unfold T_step
+  omega
