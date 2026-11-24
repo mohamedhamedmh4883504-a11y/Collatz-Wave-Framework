@@ -27,3 +27,5 @@ This work provides a **verified conditional framework**. Proving that the power 
 * `collatz_wave_framework.lean`: Complete Lean 4 formalization containing all 16 machine-verified theorems.
 * `collatz_wave_lab.py`: Python 3 experimental script for generating wave maps and testing ascent/descent dynamics.
 * `README.md`: Project documentation and mathematical summary.
+
+6. **Modular Wave Sieve (`Theorem 17 - mod32_wave_descent_9_classes`):** Machine-verified proof of strict 1-wave descent for 9 out of 16 odd residue classes modulo 32 (covering **56.25%** of all odd integers).
