@@ -451,4 +451,508 @@ theorem short_wave_k_contraction (N2 k1 K1 K2 : Nat)
   | k + 5 =>
     have h_big : 2 ^ 5 ≤ 2 ^ (k + 5) := Nat.pow_le_pow_right (by omega) (by omega)
     omega
+import Mathlib
+
+/-!
+Collatz Wave Framework -- continuation beginning at item 22.
+
+This file is a self-contained Lean 4 / Mathlib continuation.  It deliberately
+separates proved algebraic lemmas from research targets that remain open.
+No `sorry` and no unproved `axiom` declarations are used.
+
+The original conversation's declarations 1--21 are not reproduced here.
+The namespace is kept separate to avoid name clashes when this file is
+appended to an existing project.
+-/
+
+namespace CollatzWaveContinuation
+
+/-! ## 22. Exact wave relation and elimination of the auxiliary M -/
+
+/--
+A wave takes an odd state `x` with `x+1 = 2^a M`, performs `a` odd steps,
+and then removes the final power `2^s`, producing the next odd state `y`.
+The equations are written without truncated natural subtraction.
+-/
+structure WaveStep (x a M s y : ℕ) : Prop where
+  a_pos : 0 < a
+  s_pos : 0 < s
+  cofactor_odd : M % 2 = 1
+  next_odd : y % 2 = 1
+  seed : x + 1 = 2 ^ a * M
+  peak : 2 ^ s * y + 1 = 3 ^ a * M
+
+/-- Eliminating `M` gives the exact affine numerator identity. -/
+theorem theorem22_wave_elimination
+    {x a M s y : ℕ} (h : WaveStep x a M s y) :
+    2 ^ (a + s) * y + 2 ^ a = 3 ^ a * (x + 1) := by
+  calc
+    2 ^ (a + s) * y + 2 ^ a
+        = 2 ^ a * (2 ^ s * y + 1) := by
+            rw [pow_add]
+            ring
+    _ = 2 ^ a * (3 ^ a * M) := by rw [h.peak]
+    _ = 3 ^ a * (x + 1) := by rw [h.seed]; ring
+
+/-! ## 23. Transition identity between consecutive waves -/
+
+/--
+If the next state begins a new wave with `y+1 = 2^aNext * MNext`, then
+`2^(s+aNext) MNext + 1 = 3^a M + 2^s`.
+-/
+theorem theorem23_wave_transition_identity
+    {x a M s y aNext MNext : ℕ}
+    (h : WaveStep x a M s y)
+    (hNext : y + 1 = 2 ^ aNext * MNext) :
+    2 ^ (s + aNext) * MNext + 1 = 3 ^ a * M + 2 ^ s := by
+  calc
+    2 ^ (s + aNext) * MNext + 1
+        = 2 ^ s * (2 ^ aNext * MNext) + 1 := by
+            rw [pow_add]
+            ring
+    _ = 2 ^ s * (y + 1) + 1 := by rw [hNext]
+    _ = 2 ^ s * y + 1 + 2 ^ s := by ring
+    _ = 3 ^ a * M + 2 ^ s := by rw [h.peak]
+
+/-! ## 24. Rational affine form of one wave -/
+
+def waveLambda (a s : ℕ) : ℚ :=
+  (3 : ℚ) ^ a / (2 : ℚ) ^ (a + s)
+
+def waveU (a : ℕ) : ℚ :=
+  1 - ((2 : ℚ) / 3) ^ a
+
+def waveAffine (a s : ℕ) (x : ℚ) : ℚ :=
+  waveLambda a s * (x + waveU a)
+
+/-- The natural-number wave relation is exactly `x' = λ (x + u)` over ℚ. -/
+theorem theorem24_wave_affine_formula
+    {x a M s y : ℕ} (h : WaveStep x a M s y) :
+    (y : ℚ) = waveAffine a s (x : ℚ) := by
+  have hn := theorem22_wave_elimination h
+  have hq :
+      (2 : ℚ) ^ (a + s) * (y : ℚ) + (2 : ℚ) ^ a =
+        (3 : ℚ) ^ a * ((x : ℚ) + 1) := by
+    exact_mod_cast hn
+  have h2 : (2 : ℚ) ≠ 0 := by norm_num
+  have h3 : (3 : ℚ) ≠ 0 := by norm_num
+  unfold waveAffine waveLambda waveU
+  field_simp [h2, h3]
+  nlinarith [hq]
+
+/-! ## 24b. Finite telescoping identity for an arbitrary list of waves -/
+
+structure WaveCoeff where
+  a : ℕ
+  s : ℕ
+
+def coeffLambda (w : WaveCoeff) : ℚ := waveLambda w.a w.s
+
+def coeffU (w : WaveCoeff) : ℚ := waveU w.a
+
+def waveRun : List WaveCoeff → ℚ → ℚ
+  | [], x => x
+  | w :: ws, x => waveRun ws (coeffLambda w * (x + coeffU w))
+
+def waveInverseWeight : List WaveCoeff → ℚ
+  | [] => 1
+  | w :: ws => (1 / coeffLambda w) * waveInverseWeight ws
+
+def waveWeightedCorrection : List WaveCoeff → ℚ
+  | [] => 0
+  | w :: ws => coeffU w + (1 / coeffLambda w) * waveWeightedCorrection ws
+
+/-- Exact finite telescoping identity: `U_N x_N = x_0 + B_N`. -/
+theorem theorem24b_wave_telescope (ws : List WaveCoeff) (x : ℚ) :
+    waveInverseWeight ws * waveRun ws x = x + waveWeightedCorrection ws := by
+  induction ws generalizing x with
+  | nil =>
+      simp [waveInverseWeight, waveRun, waveWeightedCorrection]
+  | cons w ws ih =>
+      let lam : ℚ := coeffLambda w
+      let u : ℚ := coeffU w
+      have hlam : lam ≠ 0 := by
+        dsimp [lam, coeffLambda, waveLambda]
+        positivity
+      change (1 / lam) * waveInverseWeight ws * waveRun ws (lam * (x + u)) =
+        x + u + (1 / lam) * waveWeightedCorrection ws
+      calc
+        (1 / lam) * waveInverseWeight ws * waveRun ws (lam * (x + u))
+            = (1 / lam) *
+                (waveInverseWeight ws * waveRun ws (lam * (x + u))) := by ring
+        _ = (1 / lam) * (lam * (x + u) + waveWeightedCorrection ws) := by
+              rw [ih (lam * (x + u))]
+        _ = x + u + (1 / lam) * waveWeightedCorrection ws := by
+              field_simp [hlam]
+              ring
+
+/-! ## 24c. Exact integer coefficients for a finite wave prefix -/
+
+/-- Integer coefficients in `2^K x_N = 3^A x_0 + C`. -/
+structure WavePrefixCoefficients where
+  A : ℕ
+  K : ℕ
+  C : ℕ
+  deriving Repr
+
+def extendWavePrefix (p : WavePrefixCoefficients) (w : WaveCoeff) :
+    WavePrefixCoefficients :=
+  { A := p.A + w.a
+    K := p.K + w.a + w.s
+    C := 3 ^ w.a * p.C + 2 ^ p.K * (3 ^ w.a - 2 ^ w.a) }
+
+def wavePrefixCoefficients (ws : List WaveCoeff) : WavePrefixCoefficients :=
+  ws.foldl extendWavePrefix ⟨0, 0, 0⟩
+
+def RealizesWavePrefix (ws : List WaveCoeff) (x0 xN : ℕ) : Prop :=
+  let p := wavePrefixCoefficients ws
+  2 ^ p.K * xN = 3 ^ p.A * x0 + p.C
+
+/-- Appending one wave updates the affine coefficients by the exact formula. -/
+theorem theorem24c_extend_prefix_formula (p : WavePrefixCoefficients)
+    (w : WaveCoeff) :
+    (extendWavePrefix p w).A = p.A + w.a ∧
+    (extendWavePrefix p w).K = p.K + w.a + w.s ∧
+    (extendWavePrefix p w).C =
+      3 ^ w.a * p.C + 2 ^ p.K * (3 ^ w.a - 2 ^ w.a) := by
+  simp [extendWavePrefix]
+
+/-! ## 25--26. Exact 3-adic exponent certificates and non-resonant addition -/
+
+/-- `r` is the exact exponent of 3 dividing `n` (with nonzero cofactor). -/
+def ExactThreeExponent (n r : ℕ) : Prop :=
+  ∃ c : ℕ, n = 3 ^ r * c ∧ ¬ 3 ∣ c
+
+/--
+If the two summands have different exact powers of 3, the smaller exponent
+survives in their sum.  This is the valuation-minimum rule used in the wave
+memory calculation.
+-/
+theorem theorem25_exactThreeExponent_add_left
+    {t r L Q : ℕ}
+    (htr : t < r)
+    (hL : ¬ 3 ∣ L) :
+    ExactThreeExponent (3 ^ t * L + 3 ^ r * Q) t := by
+  let d : ℕ := r - (t + 1)
+  have hd : r = t + (d + 1) := by
+    dsimp [d]
+    omega
+  have hfactor :
+      3 ^ r * Q = 3 ^ t * (3 * (3 ^ d * Q)) := by
+    calc
+      3 ^ r * Q = (3 ^ t * 3 ^ (d + 1)) * Q := by
+        rw [hd, pow_add]
+      _ = 3 ^ t * (3 * (3 ^ d * Q)) := by
+        rw [pow_succ]
+        ring
+  refine ⟨L + 3 * (3 ^ d * Q), ?_, ?_⟩
+  · calc
+      3 ^ t * L + 3 ^ r * Q
+          = 3 ^ t * L + 3 ^ t * (3 * (3 ^ d * Q)) := by rw [hfactor]
+      _ = 3 ^ t * (L + 3 * (3 ^ d * Q)) := by ring
+  · intro hdiv
+    rcases hdiv with ⟨k, hk⟩
+    apply hL
+    refine ⟨k - 3 ^ d * Q, ?_⟩
+    omega
+
+/-- Symmetric version: the smaller exponent on the second summand survives. -/
+theorem theorem26_exactThreeExponent_add_right
+    {r t L Q : ℕ}
+    (hrt : r < t)
+    (hQ : ¬ 3 ∣ Q) :
+    ExactThreeExponent (3 ^ t * L + 3 ^ r * Q) r := by
+  have h := theorem25_exactThreeExponent_add_left
+    (t := r) (r := t) (L := Q) (Q := L) hrt hQ
+  rcases h with ⟨c, hc, hc3⟩
+  refine ⟨c, ?_, hc3⟩
+  calc
+    3 ^ t * L + 3 ^ r * Q = 3 ^ r * Q + 3 ^ t * L := by ring
+    _ = 3 ^ r * c := hc
+
+/-! ## 27. Resonance: equal powers of 3 do not permit the minimum rule -/
+
+/-- In the resonance case, the common power factors and the new cofactor is `L+Q`. -/
+theorem theorem27_resonance_factorization (t L Q : ℕ) :
+    3 ^ t * L + 3 ^ t * Q = 3 ^ t * (L + Q) := by
+  ring
+
+
+/--
+A useful reset bound: if `2^s < 3^a`, then the exact 3-adic exponent
+of `2^s - 1` must be smaller than `a`.
+This is the arithmetic core of the ascending-wave memory reset.
+-/
+theorem theorem27b_threeExponent_below_a
+    {a s r c : ℕ}
+    (hExact : 2 ^ s - 1 = 3 ^ r * c)
+    (hc : 0 < c)
+    (hBound : 2 ^ s < 3 ^ a) :
+    r < a := by
+  by_contra hnot
+  have har : a ≤ r := Nat.le_of_not_gt hnot
+  have hsum : a + (r - a) = r := Nat.add_sub_of_le har
+  have hpow : 3 ^ r = 3 ^ a * 3 ^ (r - a) := by
+    conv_lhs => rw [← hsum]
+    rw [pow_add]
+  have hpos : 0 < 3 ^ (r - a) := by positivity
+  have hcofPos : 0 < 3 ^ (r - a) * c := Nat.mul_pos hpos hc
+  have hcof : 1 ≤ 3 ^ (r - a) * c := Nat.succ_le_iff.mpr hcofPos
+  have hmul : 3 ^ a ≤ 3 ^ r * c := by
+    calc
+      3 ^ a = 3 ^ a * 1 := by simp
+      _ ≤ 3 ^ a * (3 ^ (r - a) * c) := Nat.mul_le_mul_left _ hcof
+      _ = 3 ^ r * c := by rw [hpow]; ring
+  omega
+
+/--
+An ascending-wave power inequality implies the size hypothesis used above,
+because `2^(a+s) = 2^a * 2^s` and `2^a >= 1`.
+-/
+theorem theorem27c_ascent_gives_threeExponent_bound
+    {a s r c : ℕ}
+    (hPower : 2 ^ (a + s) < 3 ^ a)
+    (hExact : 2 ^ s - 1 = 3 ^ r * c)
+    (hc : 0 < c) :
+    r < a := by
+  apply theorem27b_threeExponent_below_a hExact hc
+  have ha : 1 ≤ 2 ^ a := by positivity
+  have hle : 2 ^ s ≤ 2 ^ (a + s) := by
+    calc
+      2 ^ s = 1 * 2 ^ s := by simp
+      _ ≤ 2 ^ a * 2 ^ s := Nat.mul_le_mul_right _ ha
+      _ = 2 ^ (a + s) := by rw [pow_add]; ring
+  exact lt_of_le_of_lt hle hPower
+
+/-! ## 28. The full wave-memory transition equation -/
+
+theorem theorem28_memory_transition_factorization
+    {x a M s y aNext MNext w L : ℕ}
+    (h : WaveStep x a M s y)
+    (hNext : y + 1 = 2 ^ aNext * MNext)
+    (hMemory : M = 3 ^ w * L) :
+    2 ^ (s + aNext) * MNext + 1 = 3 ^ (a + w) * L + 2 ^ s := by
+  calc
+    2 ^ (s + aNext) * MNext + 1 = 3 ^ a * M + 2 ^ s :=
+      theorem23_wave_transition_identity h hNext
+    _ = 3 ^ a * (3 ^ w * L) + 2 ^ s := by rw [hMemory]
+    _ = 3 ^ (a + w) * L + 2 ^ s := by rw [pow_add]; ring
+
+/-! ## 29. Exact difference between consecutive wave states -/
+
+theorem theorem29_wave_difference_identity
+    {x a M s y : ℕ} (h : WaveStep x a M s y) :
+    (2 : ℤ) ^ s * ((y : ℤ) - (x : ℤ)) =
+      ((3 : ℤ) ^ a - (2 : ℤ) ^ (a + s)) * (M : ℤ)
+        + (2 : ℤ) ^ s - 1 := by
+  have hseed : (x : ℤ) + 1 = (2 : ℤ) ^ a * (M : ℤ) := by
+    exact_mod_cast h.seed
+  have hpeak : (2 : ℤ) ^ s * (y : ℤ) + 1 = (3 : ℤ) ^ a * (M : ℤ) := by
+    exact_mod_cast h.peak
+  rw [pow_add]
+  linear_combination hpeak - (2 : ℤ) ^ s * hseed
+
+/-! ## 30--31. Growth and non-growth tests for a single wave -/
+
+/-- If `3^a > 2^(a+s)`, the wave strictly increases the state. -/
+theorem theorem30_wave_growth
+    {x a M s y : ℕ}
+    (h : WaveStep x a M s y)
+    (hM : 0 < M)
+    (hPower : 2 ^ (a + s) < 3 ^ a)
+    (hTwo : 1 < 2 ^ s) :
+    x < y := by
+  have hcoef : 2 ^ (a + s) * M < 3 ^ a * M :=
+    Nat.mul_lt_mul_of_pos_right hPower hM
+  have hcombine : 2 ^ s * (x + 1) = 2 ^ (a + s) * M := by
+    calc
+      2 ^ s * (x + 1) = 2 ^ s * (2 ^ a * M) := by rw [h.seed]
+      _ = 2 ^ (a + s) * M := by rw [pow_add]; ring
+  have hlarge : 2 ^ s * (x + 1) < 2 ^ s * y + 1 := by
+    rw [hcombine, h.peak]
+    exact hcoef
+  by_contra hnot
+  have hyx : y ≤ x := Nat.le_of_not_gt hnot
+  have hmul : 2 ^ s * y ≤ 2 ^ s * x := Nat.mul_le_mul_left _ hyx
+  have hsmall : 2 ^ s * x + 1 < 2 ^ s * (x + 1) := by
+    rw [Nat.mul_add]
+    omega
+  have hupper : 2 ^ s * y + 1 ≤ 2 ^ s * x + 1 :=
+    Nat.add_le_add_right hmul 1
+  omega
+
+/-- If `3^a < 2^(a+s)`, the wave cannot increase the state. -/
+theorem theorem31_wave_nonGrowth
+    {x a M s y : ℕ}
+    (h : WaveStep x a M s y)
+    (hM : 0 < M)
+    (hPower : 3 ^ a < 2 ^ (a + s)) :
+    y ≤ x := by
+  have hcoef : 3 ^ a * M < 2 ^ (a + s) * M :=
+    Nat.mul_lt_mul_of_pos_right hPower hM
+  have hcombine : 2 ^ s * (x + 1) = 2 ^ (a + s) * M := by
+    calc
+      2 ^ s * (x + 1) = 2 ^ s * (2 ^ a * M) := by rw [h.seed]
+      _ = 2 ^ (a + s) * M := by rw [pow_add]; ring
+  have hsmall : 2 ^ s * y + 1 < 2 ^ s * (x + 1) := by
+    rw [h.peak, hcombine]
+    exact hcoef
+  by_contra hnot
+  have hxy : x < y := Nat.lt_of_not_ge hnot
+  have hmul : 2 ^ s * (x + 1) ≤ 2 ^ s * y :=
+    Nat.mul_le_mul_left _ (Nat.succ_le_of_lt hxy)
+  omega
+
+/-! ## 32. A symbolic parity path and its exact affine composition -/
+
+/-- Number of odd symbols in a finite parity word. -/
+def parityOnes : List Bool → ℕ
+  | [] => 0
+  | true :: bs => parityOnes bs + 1
+  | false :: bs => parityOnes bs
+
+/-- Constant term in the affine composition associated with a parity word. -/
+def parityOffset : List Bool → ℕ
+  | [] => 0
+  | true :: bs => 3 ^ (parityOnes bs) + 2 * parityOffset bs
+  | false :: bs => 2 * parityOffset bs
+
+/--
+A path labelled by `false` uses `2*y=x`; a path labelled by `true` uses
+`2*y=3*x+1`.  Thus every step is one ordinary Collatz step with its parity
+specified explicitly.
+-/
+inductive ParityPath : List Bool → ℕ → ℕ → Prop where
+  | nil (x : ℕ) : ParityPath [] x x
+  | evenStep {bs : List Bool} {x y z : ℕ}
+      (hstep : x = 2 * y)
+      (hrest : ParityPath bs y z) :
+      ParityPath (false :: bs) x z
+  | oddStep {bs : List Bool} {x y z : ℕ}
+      (hstep : 2 * y = 3 * x + 1)
+      (hrest : ParityPath bs y z) :
+      ParityPath (true :: bs) x z
+
+/-- Exact parity-path identity: `2^j y = 3^q x + B(word)`. -/
+theorem theorem32_parity_path_affine
+    {bs : List Bool} {x y : ℕ}
+    (h : ParityPath bs x y) :
+    2 ^ bs.length * y = 3 ^ (parityOnes bs) * x + parityOffset bs := by
+  induction h with
+  | nil x =>
+      simp [parityOnes, parityOffset]
+  | @evenStep bs x y z hstep hrest ih =>
+      simp only [List.length_cons, parityOnes, parityOffset]
+      calc
+        2 ^ (bs.length + 1) * z = 2 * (2 ^ bs.length * z) := by
+          rw [pow_succ]
+          ring
+        _ = 2 * (3 ^ (parityOnes bs) * y + parityOffset bs) := by rw [ih]
+        _ = 3 ^ (parityOnes bs) * (2 * y) + 2 * parityOffset bs := by ring
+        _ = 3 ^ (parityOnes bs) * x + 2 * parityOffset bs := by rw [← hstep]
+  | @oddStep bs x y z hstep hrest ih =>
+      simp only [List.length_cons, parityOnes, parityOffset]
+      calc
+        2 ^ (bs.length + 1) * z = 2 * (2 ^ bs.length * z) := by
+          rw [pow_succ]
+          ring
+        _ = 2 * (3 ^ (parityOnes bs) * y + parityOffset bs) := by rw [ih]
+        _ = 3 ^ (parityOnes bs) * (2 * y) + 2 * parityOffset bs := by ring
+        _ = 3 ^ (parityOnes bs) * (3 * x + 1) + 2 * parityOffset bs := by
+          rw [hstep]
+        _ = 3 ^ (parityOnes bs + 1) * x
+              + (3 ^ (parityOnes bs) + 2 * parityOffset bs) := by
+          rw [pow_succ]
+          ring
+
+/-! ## 33. Parity words, factor complexity, and density definitions -/
+
+def collatzStep (n : ℕ) : ℕ :=
+  if n % 2 = 0 then n / 2 else (3 * n + 1) / 2
+
+def collatzIter (x : ℕ) : ℕ → ℕ
+  | 0 => x
+  | n + 1 => collatzStep (collatzIter x n)
+
+def parityWord (x : ℕ) : ℕ → Bool :=
+  fun n => decide (collatzIter x n % 2 = 1)
+
+def onesPrefix (w : ℕ → Bool) (n : ℕ) : ℕ :=
+  ((Finset.range n).filter (fun i => w i = true)).card
+
+/-- Whether a length-`L` binary factor occurs somewhere in the infinite word. -/
+def OccursFactor (w : ℕ → Bool) (L : ℕ) (f : Fin L → Bool) : Prop :=
+  ∃ i : ℕ, ∀ j : Fin L, f j = w (i + j.val)
+
+/-- Number of distinct factors of length `L` in an infinite binary word. -/
+noncomputable def factorComplexity (w : ℕ → Bool) (L : ℕ) : ℕ := by
+  classical
+  exact (Finset.univ.filter (fun f : Fin L → Bool => OccursFactor w L f)).card
+
+def HasCriticalDensity (w : ℕ → Bool) : Prop :=
+  Filter.Tendsto
+    (fun n : ℕ => (onesPrefix w n : ℝ) / (n : ℝ))
+    Filter.atTop
+    (nhds (Real.log 2 / Real.log 3))
+
+def NotEventuallyPeriodic (w : ℕ → Bool) : Prop :=
+  ¬ ∃ N p : ℕ, 0 < p ∧ ∀ n : ℕ, N ≤ n → w (n + p) = w n
+
+def SuperlinearFactorComplexity (w : ℕ → Bool) : Prop :=
+  Filter.Tendsto
+    (fun L : ℕ => (factorComplexity w L : ℝ) / (L : ℝ))
+    Filter.atTop
+    Filter.atTop
+
+/-!
+The following is the mathematical conclusion established in the research
+argument for a nonperiodic integer orbit whose parity density exists and is
+exactly log_3(2): its factor complexity must be superlinear.
+The proposition is recorded here as a formalization target; this file does
+not yet contain a Lean proof of the asymptotic/combinatorial argument.
+-/
+def theorem33_critical_density_complexity_target : Prop :=
+  ∀ x : ℕ, 1 < x →
+    HasCriticalDensity (parityWord x) →
+    NotEventuallyPeriodic (parityWord x) →
+    SuperlinearFactorComplexity (parityWord x)
+
+/-!
+## 34. Necessary escape bias in wave coordinates
+
+For a wave sequence `a_n,s_n`, the exact logarithmic identity implies that an
+orbit tending to infinity must satisfy
+`S_N - log_2(3/2) A_N <= o(N)`.
+The limit statement is intentionally recorded as a target/definition rather
+than asserted as a completed Lean theorem here.
+-/
+def waveBiasTerm (a s : ℕ → ℕ) (n : ℕ) : ℝ :=
+  (s n : ℝ) - (Real.log 3 / Real.log 2 - 1) * (a n : ℝ)
+
+def HasNonpositiveAsymptoticWaveBias (a s : ℕ → ℕ) : Prop :=
+  ∀ ε : ℝ, 0 < ε →
+    ∃ N : ℕ, ∀ n : ℕ, N ≤ n →
+      (∑ i in Finset.range n, waveBiasTerm a s i) / (n : ℝ) ≤ ε
+
+/-!
+## 35. Main open goals (not claimed as theorems)
+
+The following propositions make the remaining research gap explicit:
+* exclude every nonperiodic critical-density parity word of superlinear
+  factor complexity that could come from a positive integer;
+* exclude positive integer orbits escaping to infinity;
+* prove the full Collatz conjecture.
+-/
+
+def NoEscapingPositiveCollatzOrbit : Prop :=
+  ∀ x : ℕ, 0 < x →
+    ∃ n : ℕ, collatzIter x n = 1
+
+def CriticalWordExclusionTarget : Prop :=
+  ∀ x : ℕ, 1 < x →
+    HasCriticalDensity (parityWord x) →
+    NotEventuallyPeriodic (parityWord x) →
+    False
+
+end CollatzWaveContinuation
 
